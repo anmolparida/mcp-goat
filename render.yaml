@@ -1,0 +1,15 @@
+# Render deploy config (Blueprint) for the vulnerable MCP test target.
+# In Render: New + -> Blueprint -> point at this repo. Render builds the
+# Dockerfile, injects $PORT, and gives you https://<service>.onrender.com
+services:
+  - type: web
+    name: mcp-server-scan
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      # Live open redirect stays OFF on the public host (finding still detectable).
+      # Set to "true" only for a closed/isolated lab.
+      - key: ALLOW_OPEN_REDIRECT
+        value: "false"

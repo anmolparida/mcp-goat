@@ -1,0 +1,10 @@
+services:
+  mcp-server-scan:
+    build: .
+    image: mcp-server-scan:latest
+    container_name: mcp-server-scan
+    # Published on all interfaces so a TotalAI scanner appliance/cloud connector
+    # can reach it. If you only scan from localhost, change to "127.0.0.1:8080:8000".
+    ports:
+      - "8080:8000"
+    restart: unless-stopped

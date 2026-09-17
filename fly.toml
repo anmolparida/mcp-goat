@@ -1,0 +1,27 @@
+# Fly.io deploy config for the deliberately-vulnerable MCP test target.
+# 1) Change `app` to a unique name (e.g. mcp-scan-<yourhandle>).
+# 2) fly launch --no-deploy   (or `fly apps create <name>`)
+# 3) fly deploy
+# Fly terminates TLS for you -> your target is https://<app>.fly.dev
+
+app = "mcp-server-scan-CHANGEME"
+primary_region = "iad"   # pick one near you: iad, lhr, fra, sin, syd, ...
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # Live open redirect stays OFF on the public host (finding still detectable).
+  # Set to "true" only for a closed/isolated lab.
+  ALLOW_OPEN_REDIRECT = "false"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

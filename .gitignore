@@ -1,0 +1,38 @@
+# --- Never commit real secrets or local config ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials
+credentials.*
+secrets.*
+.aws/
+.ssh/
+
+# --- Fly / deploy local state ---
+.fly/
+*.local.toml
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.mypy_cache/
+.pytest_cache/
+
+# --- OS / editors ---
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/
