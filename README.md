@@ -1,196 +1,207 @@
-# mcp-server-scan
+# 🐐 mcp-server-scan
 
-A **deliberately vulnerable MCP (Model Context Protocol) server** used to validate
-that an MCP security scanner — such as **Qualys TotalAI** — detects a broad
-catalog of MCP findings. Think DVWA / OWASP Juice Shop, but for MCP.
+> **A deliberately vulnerable MCP (Model Context Protocol) server — a punching bag for MCP security scanners.**
+> DVWA and OWASP Juice Shop walked so this could run. Point your scanner at it and watch the findings light up.
 
-Vulnerabilities are **grouped by category**, one MCP endpoint per group, so you
-can scan and confirm findings group by group.
+<p align="center">
+  <img alt="status" src="https://img.shields.io/badge/status-lab%20use%20only-red">
+  <img alt="checks" src="https://img.shields.io/badge/seeded%20findings-63-blue">
+  <img alt="transport" src="https://img.shields.io/badge/MCP-streamable%20HTTP%20%2B%20SSE-informational">
+  <img alt="license" src="https://img.shields.io/badge/license-MIT-green">
+</p>
 
-> ⚠️ **Safety.** Every dangerous tool body (command exec, SQL, SSRF, credential
-> use, browser file access…) is **mocked** — it describes what it *would* do and
-> returns fake data. It never runs commands, connects to a database, or makes
-> real outbound requests. Fake credentials use documented placeholder values
-> (e.g. `AKIAIOSFODNN7EXAMPLE`). What the scanner detects is the exposed
-> *surface*: tool schemas, poisoned descriptions, weak OAuth metadata, protocol
-> behaviors.
+Building or testing an MCP security scanner (like **Qualys TotalAI**)? You need a
+target that fails *on purpose*. This one seeds **63 distinct MCP findings** across
+five categories — from classic injection to OAuth misconfig to MCP-native attacks
+like tool poisoning, rug-pulls, and RADE — each **grouped behind its own endpoint**
+so you can scan a category and tick the findings off one by one.
+
+Every finding is engineered to be **detectable but harmless**: the scanner sees a
+real vulnerable *surface*, while the box behind it can't actually hurt anything.
+
+### Why you'd use it
+
+- ✅ **Benchmark a scanner** — know exactly what *should* be found, then measure what *is*.
+- 🕵️ **Find coverage gaps** — anything on the list your scanner misses is a real gap worth filing.
+- 🎓 **Learn / demo** — a safe sandbox to see what MCP attacks actually look like on the wire.
+- ⚡ **Deploy in minutes** — Docker in, HTTPS URL out. EC2, Fly, or Render.
+
+> ⚠️ **It's a decoy, not a weapon.** Every dangerous tool body (command exec, SQL,
+> SSRF, credential use, browser file access…) is **mocked** — it *describes* what it
+> would do and returns fake data. It never runs a command, touches a database, or
+> makes a real outbound request. Credential-looking strings are synthetic (e.g. the
+> documented placeholder `AKIAIOSFODNN7EXAMPLE`). The scanner detects the exposed
+> *surface* — tool schemas, poisoned descriptions, weak OAuth metadata, protocol
+> quirks — not a live exploit.
 >
-> ⚠️ **Public exposure.** The only genuinely-live behaviors are the OAuth
-> **open redirect** and **open registration**. On a public host the open
-> redirect is real phishing infrastructure, so it ships **public-safe** by
-> default: the finding stays detectable (unvalidated `redirect_uri` reflected +
-> advertised in metadata) but it does not auto-forward visitors to arbitrary
-> external sites. Set `ALLOW_OPEN_REDIRECT=true` to restore the raw 302 in a
-> **closed/isolated lab only**. Publicly exposing an intentionally vulnerable
-> app may also violate your hosting provider's acceptable-use policy — check it.
+> ⚠️ **Two behaviors are genuinely live:** the OAuth **open redirect** and **open
+> registration**. On the public internet an open redirect is real phishing plumbing,
+> so it ships **public-safe** by default — the finding stays detectable (unvalidated
+> `redirect_uri` reflected + advertised in metadata) but it won't forward visitors to
+> arbitrary external sites. Flip `ALLOW_OPEN_REDIRECT=true` only in a **closed lab**.
+> Also: hosting an intentionally vulnerable app may violate your provider's AUP —
+> check before you deploy.
 
 ---
 
-## Endpoints
+## ⚡ 60-second quickstart (local)
 
-| Point the scanner at | Category | # checks |
+```bash
+docker compose up --build -d          # boots on http://localhost:8080
+curl http://localhost:8080/           # lists every endpoint
+```
+
+No Docker? `pip install -r requirements.txt && uvicorn app.main:app --host 0.0.0.0 --port 8080`
+
+Then jump to [Point your scanner at it](#-point-qualys-totalai-at-it).
+
+---
+
+## 🎯 What's inside — five targets, 63 findings
+
+| Point the scanner at | What it seeds | Findings |
 |---|---|---|
-| `/mcp/discovery` | endpoint/tool discovery, hidden & duplicate tools, prompt/roots disclosure, dependency confusion | 8 |
-| `/mcp/injection` | SSRF, command/SQL/NoSQL/XXE/LDAP/SSTI/argument injection, unicode, ANSI, resource traversal | 12 |
-| `/mcp/tool-poisoning` | tool poisoning (basic + advanced), rug-pull, shadowing, RADE, spoofing, sampling, elicitation, beacon, notification abuse, error injection, schema-default | 12 |
-| `/mcp/disclosure` | info/credential/secret disclosure, browser file access, cross-session leak, JSON dup-key, output-schema mismatch, resource mutation, session fixation, DNS rebinding | 10 |
-| `/mcp/oauth` | 21 OAuth findings (metadata + authorize/token/register endpoints) | 21 |
+| `/mcp/discovery` | endpoint/tool discovery, hidden & duplicate tools, prompt/roots disclosure, dependency confusion | **8** |
+| `/mcp/injection` | SSRF, command/SQL/NoSQL/XXE/LDAP/SSTI/argument injection, unicode, ANSI, resource traversal | **12** |
+| `/mcp/tool-poisoning` | tool poisoning (basic + advanced), rug-pull, shadowing, RADE, spoofing, sampling, elicitation, beacon, notification abuse, error injection, schema-default | **12** |
+| `/mcp/disclosure` | info/credential/secret disclosure, browser file access, cross-session leak, JSON dup-key, output-schema mismatch, resource mutation, session fixation, DNS rebinding | **10** |
+| `/mcp/oauth` | the full OAuth misconfig buffet (metadata + authorize/token/register) | **21** |
 
-`/.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource`
-are served at the root (and RFC-9728 path-suffixed) so the OAuth scan discovers them.
+The OAuth metadata is served at `/.well-known/oauth-authorization-server` and
+`/.well-known/oauth-protected-resource` (root **and** RFC-9728 path-suffixed) so
+scanners discover it automatically.
 
-Full check-by-check mapping: see **[CHECKS.md](CHECKS.md)**.
-
----
-
-## Run locally
-
-```bash
-docker compose up --build -d          # http://localhost:8080
-curl http://localhost:8080/           # lists all endpoints
-```
-
-Without Docker:
-
-```bash
-pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port 8080
-```
+📋 **Every check mapped to its exact tool/endpoint:** see **[CHECKS.md](CHECKS.md)**.
 
 ---
 
-## Deploy publicly
+## 🚀 Deploy publicly
 
-Both paths give you an **HTTPS** URL. Use that URL (with the `https://` prefix
-toggled on) in TotalAI's *Inference Endpoint URL* field.
+Pick a host, get a URL, scan it. TotalAI accepts plain `http://`, so TLS is optional.
 
-### Option A — Fly.io
+### Option A — AWS EC2 (recommended)
 
-1. Install flyctl and put it on your PATH, then log in:
-   ```zsh
-   curl -L https://fly.io/install.sh | sh
-   # flyctl installs to ~/.fly — add it to your shell (zsh):
-   echo 'export FLYCTL_INSTALL="$HOME/.fly"' >> ~/.zshrc
-   echo 'export PATH="$FLYCTL_INSTALL/bin:$PATH"' >> ~/.zshrc
-   source ~/.zshrc          # reload so `fly` is found
-   fly version              # verify
-   fly auth login
-   ```
-   (bash users: use `~/.bashrc` instead of `~/.zshrc`.)
-2. Edit **`fly.toml`** → set `app` to a unique name (e.g. `mcp-scan-yourhandle`)
-   and pick a `primary_region`.
-3. Create the app (without deploying yet):
-   ```bash
-   fly apps create mcp-scan-yourhandle
-   ```
-4. Deploy:
-   ```bash
-   fly deploy
-   ```
-5. Your target is `https://mcp-scan-yourhandle.fly.dev`.
-   ```bash
-   curl https://mcp-scan-yourhandle.fly.dev/
-   ```
-6. (Closed lab only) enable the live open redirect:
-   ```bash
-   fly secrets set ALLOW_OPEN_REDIRECT=true
-   ```
+Full control, no free-tier games, and you can lock it to your scanner's IP.
 
-### Option B — Render
-
-1. Push this folder to a Git repo (GitHub/GitLab).
-2. In Render: **New +** → **Blueprint** → select the repo. Render reads
-   **`render.yaml`**, builds the Dockerfile, and injects `$PORT`.
-3. Click **Apply**. You get `https://mcp-server-scan.onrender.com`.
-   ```bash
-   curl https://mcp-server-scan.onrender.com/
-   ```
-4. (Closed lab only) in the service's **Environment** tab set
-   `ALLOW_OPEN_REDIRECT=true` and redeploy.
-
-> Free tiers sleep when idle; the first request after idle takes a few seconds
-> to wake. Run one warm-up `curl` before starting a scan.
->
-> Note: Fly.io no longer offers a standing free tier (trial credit + card
-> required). Render's free web-service tier needs no card but sleeps when idle.
-
-### Option C — AWS EC2
-
-Good when you have AWS access and want full control. TotalAI accepts plain
-`http://`, so a domain/TLS is optional.
-
-1. Launch an instance (Amazon Linux 2023 or Ubuntu; `t3.micro` is enough).
+1. Launch an instance (Amazon Linux 2023 or Ubuntu; `t3.micro` is plenty).
 2. Security group inbound: **TCP 22** from your IP, **TCP 8080** from your
-   scanner's IP (avoid `0.0.0.0/0` — it's an intentionally vulnerable target).
+   scanner's IP. Skip `0.0.0.0/0` — this is a vulnerable target, keep it on a leash.
 3. SSH in and install Docker (works on both distros):
    ```bash
    curl -fsSL https://get.docker.com | sudo sh
    sudo usermod -aG docker $USER && newgrp docker
    ```
-4. Get the code on the box — `git clone <your-repo> mcp-server-scan`, or from
-   your laptop: `scp -r mcp-server-scan ec2-user@<ip>:~/`.
-5. Run it:
+4. Get the code on the box:
    ```bash
-   cd mcp-server-scan
+   git clone https://github.com/anmolparida/mcp-goat.git && cd mcp-goat
+   # or from your laptop:  scp -r mcp-server-scan ec2-user@<ip>:~/
+   ```
+5. Launch it:
+   ```bash
    docker compose up --build -d
    curl http://localhost:8080/
    ```
-6. Point TotalAI at `http://<EC2-public-ip>:8080` (Auth = None).
+6. Point TotalAI at `http://<EC2-public-ip>:8080` (Auth = None). Done.
 
-Optional HTTPS with a domain — put Caddy in front for automatic TLS:
+<details>
+<summary>Optional: HTTPS on your own domain (Caddy, auto-TLS)</summary>
+
+With a DNS `A` record for `scan.example.com` pointing at the instance:
 
 ```bash
-# with a DNS A record pointing scan.example.com -> the instance:
 docker run -d --restart unless-stopped --name caddy \
   -p 80:80 -p 443:443 -v caddy_data:/data \
   caddy caddy reverse-proxy --from scan.example.com --to localhost:8080
 ```
 Then use `https://scan.example.com` in TotalAI.
+</details>
+
+### Option B — Fly.io
+
+Gives you an `https://<app>.fly.dev` URL. Note: Fly no longer has a standing free
+tier (trial credit + card required).
+
+1. Install flyctl and get it on your PATH:
+   ```zsh
+   curl -L https://fly.io/install.sh | sh
+   echo 'export FLYCTL_INSTALL="$HOME/.fly"' >> ~/.zshrc
+   echo 'export PATH="$FLYCTL_INSTALL/bin:$PATH"' >> ~/.zshrc
+   source ~/.zshrc      # bash users: use ~/.bashrc
+   fly version && fly auth login
+   ```
+2. In **`fly.toml`**, set `app` to a unique name and pick a `primary_region`.
+3. Ship it:
+   ```bash
+   fly apps create <your-app-name>
+   fly deploy
+   curl https://<your-app-name>.fly.dev/
+   ```
+4. Closed lab only: `fly secrets set ALLOW_OPEN_REDIRECT=true`.
+
+### Option C — Render
+
+Zero-CLI, no card needed (free tier sleeps when idle).
+
+1. Push this repo to GitHub/GitLab.
+2. Render → **New +** → **Blueprint** → pick the repo. It reads **`render.yaml`**,
+   builds the Dockerfile, and injects `$PORT`.
+3. **Apply** → you get `https://<service>.onrender.com`.
+4. Closed lab only: set `ALLOW_OPEN_REDIRECT=true` in **Environment** and redeploy.
+
+> 💤 Free tiers sleep when idle — fire one warm-up `curl` before you start a scan.
 
 ---
 
-## Point Qualys TotalAI at it
+## 🔍 How to scan an MCP server with Qualys TotalAI
 
-In **Create MCP Server** → **Basic Information**:
+[**Qualys TotalAI**](https://www.qualys.com/apps/totalai) is an AI/LLM security
+platform that scans MCP servers for the kinds of findings this target seeds. Here's
+how to point it at your deployment.
+
+**TotalAI → Create MCP Server → Basic Information:**
 
 1. **Name** — e.g. `mcp-scan-injection`.
-2. **Inference Endpoint URL** — your host, e.g. `mcp-scan-yourhandle.fly.dev`
-   (toggle the prefix to **`https://`** for a deployed host; `http://` for local).
-3. **Endpoints** — type a category path, e.g. `/mcp/injection`, then **Add**.
-   Repeat to add several, or create one MCP server per category.
-4. **Authentication Type** — `None` for every group (metadata is read
-   unauthenticated; the OAuth group needs no token to enumerate its weaknesses).
-5. Finish **Scan Settings → Comments → Review and Confirm**, then run the scan.
-6. Repeat per category (or add all five endpoints) and compare results to the
-   detection table below.
+2. **Inference Endpoint URL** — your host (toggle **`https://`** for a deployed box,
+   `http://` for local or a bare EC2 IP).
+3. **Endpoints** — type a category path like `/mcp/injection`, hit **Add**. Add
+   several, or make one MCP server per category.
+4. **Authentication Type** — `None` for every group (even OAuth — the weaknesses are
+   enumerable unauthenticated).
+5. Walk through **Scan Settings → Comments → Review and Confirm**, then run the scan.
+6. Repeat per category and check the results against the scorecard below. 👇
+
+Learn more about TotalAI: <https://www.qualys.com/apps/totalai>
 
 ---
 
-## Will a scan detect all of these? — expected results
+## ✅ Will it detect everything? — the scorecard
 
-63 checks are seeded. Detection depends on your scanner's coverage, but here is
-what each is *designed to produce* and the confidence that a capable MCP scanner
-flags it against this target.
+63 findings are seeded. Here's what each is *designed* to produce and how likely a
+capable MCP scanner is to catch it.
 
-**Legend:** ✅ high — clear static/metadata signal · 🟡 medium — needs an active
-probe or heuristic the scanner may or may not run.
+**Legend:** ✅ **high** — clear static/metadata signal · 🟡 **medium** — needs an
+active probe or heuristic the scanner may or may not run.
 
-### `/mcp/discovery` (8)
+<details open>
+<summary><b>/mcp/discovery — 8 findings</b></summary>
 
-| Check | Expected | Why |
+| Check | Likely | Signal |
 |---|---|---|
-| MCP Endpoint Discovery | ✅ | Responds to MCP handshake on a discoverable path |
+| MCP Endpoint Discovery | ✅ | Responds to the MCP handshake on a discoverable path |
 | MCP Tool Discovery | ✅ | `tools/list` returns tools unauthenticated |
-| MCP Hidden Tool | 🟡 | `admin_debug_shell` callable but not listed — needs a probe that calls unlisted names |
-| MCP Duplicate Tool Names | ✅ | Two tools advertise `get_status` |
+| MCP Hidden Tool | 🟡 | `admin_debug_shell` is callable but unlisted — needs an unlisted-name probe |
+| MCP Duplicate Tool Names | ✅ | Two tools both advertise `get_status` |
 | MCP Prompt Listing Disclosure | ✅ | `prompts/list` exposes internal prompts |
 | MCP Prompt Detail Leak | ✅ | `internal_support_agent` body leaks admin pw + DB DSN |
 | MCP Roots Disclosure | ✅ | `roots/list` returns `~/.ssh`, prod-db paths |
 | MCP Dependency Confusion | 🟡 | `render_report` cites unscoped internal packages — needs description analysis |
 
-### `/mcp/injection` (12)
+</details>
 
-| Check | Expected | Why |
+<details>
+<summary><b>/mcp/injection — 12 findings</b></summary>
+
+| Check | Likely | Signal |
 |---|---|---|
 | MCP SSRF Vulnerabilities | ✅ | `fetch_url(url)` + description naming `169.254.169.254` |
 | MCP Argument Injection | ✅ | `ping_host` description shows raw concatenation |
@@ -205,9 +216,12 @@ probe or heuristic the scanner may or may not run.
 | MCP Resource Read Side Effect (SSRF) | 🟡 | `resources/read` fetch side effect — needs a resource probe |
 | MCP Resource Template Traversal | ✅ | `file:///srv/data/{path}` template unsanitized |
 
-### `/mcp/tool-poisoning` (12)
+</details>
 
-| Check | Expected | Why |
+<details>
+<summary><b>/mcp/tool-poisoning — 12 findings</b></summary>
+
+| Check | Likely | Signal |
 |---|---|---|
 | MCP Tool Poisoning | ✅ | `<IMPORTANT>` exfil block in `add` description |
 | MCP Advanced Tool Poisoning | ✅ | instructions inside a field `description` |
@@ -222,9 +236,12 @@ probe or heuristic the scanner may or may not run.
 | MCP Sampling Attacks | 🟡 | `_sampling_request` in `autocomplete` result — needs a call + parse |
 | MCP Elicitation Disclosure | 🟡 | `verify_account` elicits SSN/card — needs a call + parse |
 
-### `/mcp/disclosure` (10)
+</details>
 
-| Check | Expected | Why |
+<details>
+<summary><b>/mcp/disclosure — 10 findings</b></summary>
+
+| Check | Likely | Signal |
 |---|---|---|
 | MCP Information Disclosure | ✅ | `debug_info` leaks env/host/traceback; `debug=True` app |
 | MCP Credential Exposure | ✅ | `get_service_token` returns bearer + refresh |
@@ -237,11 +254,12 @@ probe or heuristic the scanner may or may not run.
 | MCP Session Fixation | 🟡 | accepts client `X-Session-Id` — needs a fixation probe |
 | MCP DNS Rebinding Risk | ✅ | `serverInfo` advertises `host_validation: disabled`, `allowed_origins: *` |
 
-### `/mcp/oauth` (21)
+</details>
 
-Detected from the two `.well-known` documents and the `/oauth/*` endpoints.
+<details>
+<summary><b>/mcp/oauth — 21 findings</b> (from the two <code>.well-known</code> docs + <code>/oauth/*</code>)</summary>
 
-| Check | Expected | Why |
+| Check | Likely | Signal |
 |---|---|---|
 | MCP Weak OAuth Metadata | ✅ | metadata omits recommended fields; permissive |
 | MCP OAuth PKCE Not Enforced | ✅ | `code_challenge_methods_supported` includes `plain` |
@@ -265,35 +283,30 @@ Detected from the two `.well-known` documents and the `/oauth/*` endpoints.
 | MCP OAuth Excessive Token Lifetime | 🟡 | `expires_in: 315360000` — needs a token call |
 | MCP OAuth Audience Not Validated | 🟡 | no audience binding in PRM; `whoami` accepts any token |
 
-### Summary
+</details>
 
-- **Static / metadata-visible (✅):** ~33 checks — flagged by almost any capable
-  MCP scanner just from `tools/list`, `prompts/list`, `resources/list`,
-  `serverInfo`, and the `.well-known` metadata.
-- **Requires an active probe (🟡):** ~30 checks — flagged only if the scanner
-  actively calls tools, reads resources, opens two sessions, decodes JWTs, or
-  inspects raw bodies/headers. TotalAI is an active scanner, so it should catch
-  most of these; any it misses points at a genuine coverage gap worth filing.
-- **`ALLOW_OPEN_REDIRECT=false` (public default):** the open-redirect finding is
-  still present via reflection + metadata; only the live victim-forwarding 302 is
-  disabled. Set it `true` in a closed lab for a full open-redirect confirmation.
+**Bottom line:** ~**33** findings are static/metadata-visible (✅ — almost any scanner
+gets these from `tools/list`, `prompts/list`, `resources/list`, `serverInfo`, and the
+`.well-known` docs). ~**30** need an active probe (🟡 — calling tools, reading
+resources, opening two sessions, decoding JWTs, inspecting raw bodies/headers).
+TotalAI is an active scanner, so it should catch most of the 🟡 set — and **anything
+it misses is a real coverage gap**, which is the whole point.
 
-If a check you expect is **not** detected, confirm the behavior manually (see
-below) — if the behavior is present but unflagged, that's a scanner finding, not
-a target bug.
+> If a check you expect isn't flagged, confirm the behavior by hand (below). Behavior
+> present but unflagged = a scanner finding, not a target bug.
 
 ---
 
-## Manually verify a target
+## 🧪 Verify a target by hand
 
 ```bash
-H=https://mcp-scan-yourhandle.fly.dev
+H=http://localhost:8080      # or your deployed URL
 
-# handshake + tools
+# handshake + tool list
 curl -s -X POST $H/mcp/injection -H 'content-type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
 
-# OAuth metadata
+# weak OAuth metadata
 curl -s $H/.well-known/oauth-authorization-server | jq .
 
 # open-redirect reflection (public-safe interstitial)
@@ -302,54 +315,40 @@ curl -si "$H/oauth/authorize?redirect_uri=https://evil.example/cb" | grep -i x-u
 
 ---
 
-## Publishing to GitHub
-
-This repo is safe to make public. Every credential-looking string in the code is
-**synthetic and non-functional** — it exists so a scanner detects the
-"Hardcoded Secret in Metadata" / "Credential Exposure" findings. There are no
-real secrets, and `.gitignore` blocks `.env`, keys, and credential files from
-ever being committed.
-
-```bash
-cd mcp-server-scan
-git init
-git add .
-git commit -m "Deliberately vulnerable MCP test target for scanner validation"
-git branch -M main
-git remote add origin git@github.com:<you>/<repo-name>.git
-git push -u origin main
-```
-
-Notes:
-- **Push protection:** the AWS values are AWS's documented example keys
-  (allow-listed by GitHub). The other fakes are shaped to avoid GitHub's
-  high-confidence detectors. If a push is ever blocked on a synthetic value,
-  it's a false positive — mark it "used in tests" in the GitHub prompt.
-- Add a `LICENSE` (MIT or Apache-2.0) and keep the "intentionally vulnerable"
-  warning near the top of the README so nobody mistakes it for a real service.
-- Never point `ALLOW_OPEN_REDIRECT=true` at a public deployment.
-
-## Layout (everything lives in this one folder)
+## 📁 Layout
 
 ```
 mcp-server-scan/
   app/
-    main.py            # Starlette app; endpoints + OAuth routes + .well-known + banner
+    main.py            # Starlette app: endpoints + OAuth routes + .well-known + banner
     mcp_core.py        # minimal MCP streamable-HTTP/SSE protocol core
     servers/
-      discovery.py
-      injection.py
-      tool_poisoning.py
-      disclosure.py
-      oauth.py         # weak OAuth AS; ALLOW_OPEN_REDIRECT switch
-  Dockerfile           # honors $PORT (Fly/Render/local)
+      discovery.py     # 8 findings
+      injection.py     # 12 findings
+      tool_poisoning.py# 12 findings
+      disclosure.py    # 10 findings
+      oauth.py         # weak OAuth AS + ALLOW_OPEN_REDIRECT switch (21 findings)
+  Dockerfile           # honors $PORT (EC2/Fly/Render/local)
   docker-compose.yml   # local run on :8080
   fly.toml             # Fly.io deploy
   render.yaml          # Render blueprint
   requirements.txt
+  CHECKS.md            # every check → its exact location
   README.md
-  CHECKS.md            # every check -> exact location
+  LICENSE              # MIT
 ```
 
-Not affiliated with any vendor named in spoofed metadata; those strings exist
-only to exercise impersonation detection.
+Adding a check? Drop a `Tool`/`Prompt`/`ResourceEntry` into the relevant
+`app/servers/*.py` — the description/schema/behavior *is* the signal. The core
+supports any number of endpoints, so you can also split a category into
+one-finding-per-URL servers.
+
+---
+
+## 📜 License
+
+[MIT](LICENSE). This is an **intentionally vulnerable** test target — every
+credential-like value is synthetic and non-functional. Run it in an isolated lab
+only; the authors accept no liability for misuse. Not affiliated with any vendor
+named in spoofed metadata; those strings exist purely to exercise impersonation
+detection.
